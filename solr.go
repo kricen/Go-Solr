@@ -224,6 +224,7 @@ func HTTPGet(httpUrl string) ([]byte, error) {
 func HTTPPost(url string, headers [][]string, payload *[]byte) ([]byte, error) {
 	// setup post client
 	client := &http.Client{}
+	fmt.Println(url)
 	req, err := http.NewRequest("POST", url, bytes.NewReader(*payload))
 
 	// add headers
@@ -292,6 +293,11 @@ func SolrUpdateString(c *Connection, commit bool) string {
 	if commit {
 		return fmt.Sprintf("%s?commit=true", s)
 	}
+	return s
+}
+
+func SolrDataImportString(c *Connection) string {
+	s := fmt.Sprintf("%s/dataimport?command=full-import&indent=on&wt=json", c.URL)
 	return s
 }
 
@@ -541,7 +547,6 @@ func (c *Connection) Update(m map[string]interface{}, commit bool) (*UpdateRespo
 	if err != nil {
 		return nil, err
 	}
-
 	// perform request
 	resp, err := HTTPPost(
 		SolrUpdateString(c, commit),
@@ -551,6 +556,49 @@ func (c *Connection) Update(m map[string]interface{}, commit bool) (*UpdateRespo
 	if err != nil {
 		return nil, err
 	}
+
+	// decode the response & check
+	decoded, err := BytesToJSON(&resp)
+	if err != nil {
+		return nil, err
+	}
+
+	error, report := SolrErrorResponse((*decoded).(map[string]interface{}))
+	if error {
+		return nil, fmt.Errorf(fmt.Sprintf("%s", *report))
+	}
+
+	return &UpdateResponse{true}, nil
+}
+
+/*
+ * Performs a Solr Update query against a given update document
+ * specified in a map[string]interface{} type
+ * NOTE: Requires JSON updates to be enabled, see;
+ * http://wiki.apache.org/solr/UpdateJSON
+ * FUTURE: Will ask for solr version details in Connection and
+ * act appropriately
+ */
+func (c *Connection) DataImport(m map[string]string) (*UpdateResponse, error) {
+
+	form := url.Values{}
+	for k, v := range m {
+		form.Add(k, v)
+	}
+	payload, err := json.Marshal(form)
+	if err != nil {
+		return nil, err
+	}
+	// perform request
+	resp, err := HTTPPost(
+		SolrDataImportString(c),
+		[][]string{{"Content-Type", "application/x-www-form-urlencoded"}},
+		&payload)
+
+	if err != nil {
+		return nil, err
+	}
+	fmt.Printf("%+v", string(resp))
 
 	// decode the response & check
 	decoded, err := BytesToJSON(&resp)
